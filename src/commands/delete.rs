@@ -2,6 +2,7 @@ use anyhow::Result;
 use colored::Colorize;
 use std::io::{self, Write};
 
+use crate::cache::Cache;
 use crate::config::Config;
 use crate::gcp::SecretManagerClient;
 
@@ -26,6 +27,12 @@ pub async fn execute(config: &Config, name: &str, env: &str, force: bool) -> Res
 
     let gcp_client = SecretManagerClient::new(config.clone()).await?;
     gcp_client.delete_secret(env, name).await?;
+
+    // Update cache
+    if let Ok(mut cache) = Cache::load() {
+        cache.delete(env, name);
+        let _ = cache.save();
+    }
 
     println!(
         "{} Secret '{}' deleted from environment '{}'",

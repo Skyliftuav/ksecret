@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
+use crate::cache::Cache;
 use crate::config::Config;
 use crate::gcp::SecretManagerClient;
 
@@ -22,6 +23,7 @@ pub async fn execute(
         v
     } else {
         print!("Enter secret value: ");
+        io::stdout().flush().context("Failed to flush stdout")?;
         let mut buffer = String::new();
         io::stdin()
             .read_line(&mut buffer)
@@ -31,6 +33,12 @@ pub async fn execute(
 
     let gcp_client = SecretManagerClient::new(config.clone()).await?;
     gcp_client.set_secret(env, name, &secret_value).await?;
+
+    // Update cache
+    if let Ok(mut cache) = Cache::load() {
+        cache.set(env, name, secret_value);
+        let _ = cache.save();
+    }
 
     println!(
         "{} Secret '{}' set for environment '{}'",

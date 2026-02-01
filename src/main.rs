@@ -7,6 +7,7 @@ mod commands;
 mod config;
 mod gcp;
 mod k8s;
+mod cache;
 
 /// ksecret - Kubernetes Secrets Management Tool
 ///
@@ -63,6 +64,10 @@ enum Commands {
         /// Output format (text, json)
         #[arg(short, long, default_value = "text")]
         output: String,
+
+        /// Skip cache and fetch directly from GCP
+        #[arg(long)]
+        no_cache: bool,
     },
 
     /// Set a secret value in Google Cloud Secret Manager
@@ -144,9 +149,9 @@ async fn main() -> Result<()> {
             let config = config::Config::load(cli.project)?;
             commands::sync::execute(&config, &environment, namespace, context, dry_run).await
         }
-        Commands::Get { name, env, output } => {
+        Commands::Get { name, env, output, no_cache } => {
             let config = config::Config::load(cli.project)?;
-            commands::get::execute(&config, &name, &env, &output).await
+            commands::get::execute(&config, &name, &env, &output, no_cache).await
         }
         Commands::Set {
             name,
