@@ -69,9 +69,48 @@ pub async fn execute(
             .await
             .with_context(|| format!("Failed to get secret: {}", secret_info.name))?;
 
-        // Create data map with "value" as the key
+        // Determine if secret is multi-value (JSON/YAML) or single value
         let mut data = BTreeMap::new();
-        data.insert("value".to_string(), value.into_bytes());
+        let mut is_multi_value = false;
+
+        // Try parsing as JSON Object first
+        if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(&value) {
+            is_multi_value = true;
+            for (k, v) in map {
+                let v_str = match v {
+                    serde_json::Value::String(s) => s,
+                    _ => v.to_string(),
+                };
+                data.insert(k, v_str.into_bytes());
+            }
+        }
+        // If not JSON object, try parsing as YAML Mapping
+        else if let Ok(serde_yaml::Value::Mapping(map)) = serde_yaml::from_str::<serde_yaml::Value>(&value) {
+            is_multi_value = true;
+            for (k, v) in map {
+                if let Some(k_str) = k.as_str() {
+                    let v_str = match v {
+                        serde_yaml::Value::String(s) => s,
+                        serde_yaml::Value::Bool(b) => b.to_string(),
+                        serde_yaml::Value::Number(n) => n.to_string(),
+                        _ => {
+                            // Serialize complex types back to string, trimming the newline usually added by to_string
+                            serde_yaml::to_string(&v)
+                                .unwrap_or_default()
+                                .trim()
+                                .to_string()
+                        }
+                    };
+                    data.insert(k_str.to_string(), v_str.into_bytes());
+                }
+            }
+        }
+
+        // Fallback to single value if parsing failed or didn't yield a map
+        if !is_multi_value || data.is_empty() {
+            data.clear(); // Ensure empty if partial parse
+            data.insert("value".to_string(), value.into_bytes());
+        }
 
         // Apply to Kubernetes
         k8s_client

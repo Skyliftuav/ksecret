@@ -1,3 +1,4 @@
+use crate::k8s::error::map_k8s_error;
 use anyhow::{Context, Result};
 use k8s_openapi::api::core::v1::Secret;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -19,22 +20,28 @@ impl KubeClient {
     pub async fn new(context: Option<&str>) -> Result<Self> {
         let config = if let Some(ctx) = context {
             // Load kubeconfig with specific context
-            let kubeconfig = Kubeconfig::read().context("Failed to read kubeconfig")?;
+            let kubeconfig = Kubeconfig::read()
+                .map_err(|e| map_k8s_error(e.into()))
+                .context("Failed to read kubeconfig")?;
             let options = KubeConfigOptions {
                 context: Some(ctx.to_string()),
                 ..Default::default()
             };
             Config::from_custom_kubeconfig(kubeconfig, &options)
                 .await
+                .map_err(|e| map_k8s_error(e.into()))
                 .with_context(|| format!("Failed to create config for context: {}", ctx))?
         } else {
             // Use default config (in-cluster or default context)
             Config::infer()
                 .await
+                .map_err(|e| map_k8s_error(e.into()))
                 .context("Failed to infer Kubernetes config")?
         };
 
-        let client = Client::try_from(config).context("Failed to create Kubernetes client")?;
+        let client = Client::try_from(config)
+            .map_err(|e| map_k8s_error(e.into()))
+            .context("Failed to create Kubernetes client")?;
 
         Ok(Self { client })
     }
@@ -79,7 +86,7 @@ impl KubeClient {
             Err(kube::Error::Api(e)) if e.code == 404 => {
                 // Secret didn't exist, safe to proceed
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(map_k8s_error(e.into())),
         }
 
         // Create the secret freshly
@@ -87,6 +94,7 @@ impl KubeClient {
         secrets
             .create(&post_params, &secret)
             .await
+            .map_err(|e| map_k8s_error(e.into()))
             .with_context(|| format!("Failed to create secret: {}", name))?;
 
         Ok(())
@@ -100,6 +108,7 @@ impl KubeClient {
         secrets
             .delete(name, &Default::default())
             .await
+            .map_err(|e| map_k8s_error(e.into()))
             .with_context(|| format!("Failed to delete secret: {}", name))?;
 
         Ok(())
@@ -116,6 +125,7 @@ impl KubeClient {
         let secret_list = secrets
             .list(&list_params)
             .await
+            .map_err(|e| map_k8s_error(e.into()))
             .context("Failed to list secrets")?;
 
         let names: Vec<String> = secret_list
@@ -135,7 +145,7 @@ impl KubeClient {
         match namespaces.get(namespace).await {
             Ok(_) => Ok(true),
             Err(kube::Error::Api(err)) if err.code == 404 => Ok(false),
-            Err(e) => Err(e).context("Failed to check namespace"),
+            Err(e) => Err(map_k8s_error(e.into())).context("Failed to check namespace"),
         }
     }
 }

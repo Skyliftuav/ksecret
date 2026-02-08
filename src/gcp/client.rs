@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::gcp::error::map_gcp_error;
 use anyhow::{Context, Result};
 use google_cloud_secretmanager_v1::client::SecretManagerService;
 
@@ -22,6 +23,7 @@ impl SecretManagerClient {
         let client = SecretManagerService::builder()
             .build()
             .await
+            .map_err(|e| map_gcp_error(e.into()))
             .context("Failed to create Secret Manager client")?;
 
         Ok(Self { client, config })
@@ -42,7 +44,11 @@ impl SecretManagerClient {
                 request = request.set_page_token(token);
             }
 
-            let response = request.send().await.context("Failed to list secrets")?;
+            let response = request
+                .send()
+                .await
+                .map_err(|e| map_gcp_error(e.into()))
+                .context("Failed to list secrets")?;
 
             for secret in response.secrets.iter() {
                 // Extract the secret name from the full resource path
@@ -87,6 +93,7 @@ impl SecretManagerClient {
             .set_name(&version_name)
             .send()
             .await
+            .map_err(|e| map_gcp_error(e.into()))
             .with_context(|| format!("Failed to access secret: {}", name))?;
 
         let payload = response.payload.context("Secret has no payload")?;
@@ -133,6 +140,7 @@ impl SecretManagerClient {
                 .set_secret(secret)
                 .send()
                 .await
+                .map_err(|e| map_gcp_error(e.into()))
                 .with_context(|| format!("Failed to create secret: {}", name))?;
         }
 
@@ -146,6 +154,7 @@ impl SecretManagerClient {
             .set_payload(payload)
             .send()
             .await
+            .map_err(|e| map_gcp_error(e.into()))
             .with_context(|| format!("Failed to add secret version: {}", name))?;
 
         Ok(())
@@ -160,6 +169,7 @@ impl SecretManagerClient {
             .set_name(&secret_name)
             .send()
             .await
+            .map_err(|e| map_gcp_error(e.into()))
             .with_context(|| format!("Failed to delete secret: {}", name))?;
 
         Ok(())
